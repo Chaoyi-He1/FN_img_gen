@@ -3,3 +3,4 @@ data/*
 *.log
 *.err
 *.slurm
+runs/*

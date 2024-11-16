@@ -95,13 +95,13 @@ class ViT_block(nn.Module):
         self.norm2 = nn.LayerNorm(hidden_size)
         self.attn = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size * mlp_ratio),
+            nn.Linear(hidden_size, int(hidden_size * mlp_ratio)),
             nn.GELU(),
-            nn.Linear(hidden_size * mlp_ratio, hidden_size),
+            nn.Linear(int(hidden_size * mlp_ratio), hidden_size),
         )
         self.module = nn.Sequential(
             nn.SiLU(),
-            nn.Linear(hidden_size, 6 * hidden_size),
+            nn.Linear(hidden_size, int(6 * hidden_size)),
         )
     
     def forward(self, x, c):
