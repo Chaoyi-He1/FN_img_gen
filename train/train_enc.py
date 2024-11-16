@@ -8,13 +8,14 @@ import torch.amp
 from encoder.encoder import Encoder
 import utils
 import torch.distributed as dist
+from tensorboardX import SummaryWriter
 
 def train_one_epoch(
     encoder: Encoder, data_loader: Iterable, optimizer: torch.optim.Optimizer, device: torch.device, 
     epoch: int, vae: AutoencoderKL, max_norm: float = 0.0, scaler: torch.amp.GradScaler = None,
     print_freq: int = 100, batch_size: int = 64, save_freq: int = 1000, rank: int = -1,
     encoder_without_ddp: torch.nn.Module = None, scheduler: torch.optim.lr_scheduler = None,
-    save_dir: str = "checkpoints", tb_writer: torch.utils.tensorboard.SummaryWriter = None
+    save_dir: str = "checkpoints", tb_writer: SummaryWriter = None
 ):
     encoder.train()
     metric_logger = MetricLogger(delimiter="; ")
