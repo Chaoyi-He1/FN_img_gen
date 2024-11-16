@@ -1,0 +1,4 @@
+# Encoder configuration
+enc_model: "Enc_L_4"
+image_size: 256
+num_classes: 1000
