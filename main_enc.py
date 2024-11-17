@@ -76,6 +76,10 @@ def parse_args():
     parser.add_argument('--save_dir', default='trained_models/', type=str,
                         help='directory to save checkpoints')
     
+    # dataset parameters
+    parser.add_argument('--data_path', default='data/train/', type=str,
+                        help='path to dataset')
+    
     # training parameters
     parser.add_argument("--vae", type=str, choices=["ema", "mse"], default="ema")  # Choice doesn't affect training
     parser.add_argument('--seed', default=42, type=int,
@@ -84,9 +88,9 @@ def parse_args():
                         help='device to use for training / testing')
     parser.add_argument('--num_workers', default=4, type=int,
                         help='number of data loading workers')
-    parser.add_argument('--batch_size', default=128, type=int,
+    parser.add_argument('--batch_size', default=256, type=int,
                         help='input batch size for training')
-    parser.add_argument('--epochs', default=500, type=int,
+    parser.add_argument('--epochs', default=50, type=int,
                         help='number of epochs to train')
     parser.add_argument('--start_epoch', default=0, type=int,
                         help='start epoch')
@@ -146,6 +150,7 @@ def main(args):
         Path(args.save_dir).mkdir(parents=True, exist_ok=True)
     
     # create tensorboard writer
+    writer = None
     if args.rank in [-1, 0]:
         writer = SummaryWriter()
     

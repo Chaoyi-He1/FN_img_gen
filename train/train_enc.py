@@ -68,8 +68,8 @@ def train_one_epoch(
                 }, os.path.join(save_dir, f"model_{epoch}_{train_steps:07d}.pth"))
                 
             if tb_writer is not None:
-                tb_writer.add_scalar("train/loss", metric_logger.global_avg("loss"), train_steps)
-                tb_writer.add_scalar("train/lr", metric_logger.global_avg("lr"), train_steps)
+                tb_writer.add_scalar("train_steps/loss", metric_logger.meters['loss'].global_avg, train_steps)
+                tb_writer.add_scalar("train_steps/lr", metric_logger.meters['lr'].global_avg, train_steps)
             
             scheduler.step()
             dist.barrier()

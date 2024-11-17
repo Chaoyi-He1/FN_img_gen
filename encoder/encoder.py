@@ -5,7 +5,7 @@ the feature vector will be used as the coeeficients of the Fourier series used t
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.vision_transformer import PatchEmbed
+from timm.models.vision_transformer import PatchEmbed, Attention
 import numpy as np
 
 
@@ -35,10 +35,10 @@ def FourierSeries_Reconstruction(A0, An, Bn, img_size):
     sin_j = torch.sin(2 * pi * j_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
     
     # Compute components for x, y, and xy
-    img_x = (An["An_x"][:, :, None, :] * cos_i + Bn["Bn_x"][:, :, None, :] * sin_i).sum(dim=-1)  # (Batch, C, img_size)
-    img_y = (An["An_y"][:, :, None, :] * cos_j + Bn["Bn_y"][:, :, None, :] * sin_j).sum(dim=-1)  # (Batch, C, img_size)
-    img_xy = ((An["An_xy"][:, :, None, None, :] * cos_i[:, :, None] * cos_j[None, :, :]) +
-              (Bn["Bn_xy"][:, :, None, None, :] * sin_i[:, :, None] * sin_j[None, :, :])).sum(dim=-1)  # (Batch, C, img_size, img_size)
+    img_x = (An["An_x"][:, :, None, :] * cos_i[None, None, :, :] + Bn["Bn_x"][:, :, None, :] * sin_i[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
+    img_y = (An["An_y"][:, :, None, :] * cos_j[None, None, :, :] + Bn["Bn_y"][:, :, None, :] * sin_j[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
+    img_xy = (An["An_xy"][:, :, None, None, :] * cos_i[None, None, :, None, :] * cos_j[None, None, None, :, :] + 
+              Bn["Bn_xy"][:, :, None, None, :] * sin_i[None, None, :, None, :] * sin_j[None, None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size, img_size)
     
     # Combine all components
     img = img_x[:, :, :, None] + img_y[:, :, None, :] + img_xy
@@ -93,7 +93,7 @@ class ViT_block(nn.Module):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size)
         self.norm2 = nn.LayerNorm(hidden_size)
-        self.attn = nn.MultiheadAttention(hidden_size, num_heads, batch_first=True)
+        self.attn = Attention(hidden_size, num_heads, qkv_bias=True)
         self.mlp = nn.Sequential(
             nn.Linear(hidden_size, int(hidden_size * mlp_ratio)),
             nn.GELU(),
@@ -138,7 +138,7 @@ class FinalLayer(nn.Module):
     def forward(self, x, c):
         x = x[:, :self.channel, :]
         c = c.unsqueeze(1)
-        A0 = self.A0(c, x)
+        A0 = self.A0(c, x).squeeze(-1)
         An_x = self.An_x(c, x)
         An_y = self.An_y(c, x)
         An_xy = self.An_xy(c, x)
