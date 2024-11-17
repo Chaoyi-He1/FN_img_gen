@@ -4,3 +4,4 @@ data/*
 *.err
 *.slurm
 runs/*
+trained_models/*
