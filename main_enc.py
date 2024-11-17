@@ -90,7 +90,7 @@ def parse_args():
                         help='number of data loading workers')
     parser.add_argument('--batch_size', default=256, type=int,
                         help='input batch size for training')
-    parser.add_argument('--epochs', default=50, type=int,
+    parser.add_argument('--epochs', default=100, type=int,
                         help='number of epochs to train')
     parser.add_argument('--start_epoch', default=0, type=int,
                         help='start epoch')
@@ -243,7 +243,7 @@ def main(args):
     for epoch in range(start_epoch, args.epochs):
         train_dict = train_one_epoch(
             encoder, dataloader, optimizer, device, epoch, vae, args.clip_max_norm, scaler,
-            args.print_freq, args.batch_size, args.save_freq, args.rank, encoder_without_ddp, scheduler,
+            args.print_freq, args.batch_size, 1000, args.rank, encoder_without_ddp, scheduler,
             args.save_dir, writer
         )
     total_time = time.time() - total_time
