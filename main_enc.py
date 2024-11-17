@@ -90,7 +90,7 @@ def parse_args():
                         help='number of data loading workers')
     parser.add_argument('--batch_size', default=256, type=int,
                         help='input batch size for training')
-    parser.add_argument('--epochs', default=100, type=int,
+    parser.add_argument('--epochs', default=300, type=int,
                         help='number of epochs to train')
     parser.add_argument('--start_epoch', default=0, type=int,
                         help='start epoch')
@@ -104,7 +104,7 @@ def parse_args():
                         help='initial learning rate')
     parser.add_argument('--lrf', default=0.1, type=float,
                         help='learning rate factor')
-    parser.add_argument('--clip_max_norm', default=.1, type=float,
+    parser.add_argument('--clip_max_norm', default=1.0, type=float,
                         help='gradient clipping max norm')
     
     # distributed training parameter
@@ -155,12 +155,16 @@ def main(args):
         writer = SummaryWriter()
     
     # create model
-    vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
-    vae.requires_grad_(False)
-    vae.eval()
+    if config['use_vae']:
+        vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
+        vae.requires_grad_(False)
+        vae.eval()
+    else:
+        vae = None
     
     encoder = Enc_models[config['enc_model']](
-        input_size=config['image_size'] // 8, 
+        input_size=config['image_size'] // 8 if config['use_vae'] else config['image_size'], 
+        in_channels=4 if config['use_vae'] else 3,
         num_classes=config['num_classes'],
         num_fourier_terms=config['num_fourier_terms'],
     )
@@ -247,6 +251,7 @@ def main(args):
             args.print_freq, args.batch_size, args.save_freq, args.rank, encoder_without_ddp, scheduler,
             args.save_dir, writer
         )
+        scheduler.step()
     total_time = time.time() - total_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     

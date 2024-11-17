@@ -3,3 +3,4 @@ enc_model: "Enc_L_4"
 image_size: 256
 num_classes: 1000
 num_fourier_terms: 512
+use_vae: True

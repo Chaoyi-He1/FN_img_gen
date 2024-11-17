@@ -26,11 +26,13 @@ def train_one_epoch(
     
     for img, lable in metric_logger.log_every(data_loader, print_freq, header):
         train_steps += 1
-        img = img.to(device)
+        img = img.to(device).half()
         lable = lable.to(device)
-        with torch.amp.autocast('cuda', enabled=scaler is not None):
-            with torch.no_grad():
-                img = vae.encode(img).latent_dist.sample().mul_(0.18215)
+        
+        if vae is not None:
+            with torch.amp.autocast('cuda', enabled=scaler is not None):
+                with torch.no_grad():
+                    img = vae.encode(img).latent_dist.sample().mul_(0.18215)
         
         with torch.amp.autocast('cuda', enabled=scaler is not None):
             y = encoder(img, lable)
@@ -60,7 +62,7 @@ def train_one_epoch(
         if train_steps % save_freq == 0:
             if rank in [-1, 0]:
                 utils.save_on_master({
-                    'encoder': encoder.state_dict(),
+                    'encoder': encoder_without_ddp.state_dict(),
                     'scaler': scaler.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
@@ -71,7 +73,6 @@ def train_one_epoch(
                 tb_writer.add_scalar("train_steps/loss", metric_logger.meters['loss'].global_avg, train_steps)
                 tb_writer.add_scalar("train_steps/lr", metric_logger.meters['lr'].global_avg, train_steps)
             
-            scheduler.step()
             dist.barrier()
     
     metric_logger.synchronize_between_processes()
