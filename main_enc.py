@@ -162,6 +162,7 @@ def main(args):
     encoder = Enc_models[config['enc_model']](
         input_size=config['image_size'] // 8, 
         num_classes=config['num_classes'],
+        num_fourier_terms=config['num_fourier_terms'],
     )
     
     start_epoch = args.start_epoch
