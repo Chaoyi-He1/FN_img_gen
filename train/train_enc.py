@@ -76,5 +76,5 @@ def train_one_epoch(
             dist.barrier()
     
     metric_logger.synchronize_between_processes()
-    print("Averaged loss: ", metric_logger.global_avg("loss"))
+    print("Averaged loss: ", metric_logger.meters['loss'].global_avg)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
