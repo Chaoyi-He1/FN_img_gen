@@ -88,7 +88,7 @@ def parse_args():
                         help='device to use for training / testing')
     parser.add_argument('--num_workers', default=4, type=int,
                         help='number of data loading workers')
-    parser.add_argument('--batch_size', default=16, type=int,
+    parser.add_argument('--batch_size', default=12, type=int,
                         help='input batch size for training')
     parser.add_argument('--epochs', default=300, type=int,
                         help='number of epochs to train')
