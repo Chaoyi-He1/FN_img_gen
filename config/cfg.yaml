@@ -2,5 +2,5 @@
 enc_model: "Enc_L_8"
 image_size: 256
 num_classes: 1000
-num_fourier_terms: 512
+num_fourier_terms: 1024
 use_vae: False
