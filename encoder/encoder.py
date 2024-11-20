@@ -37,8 +37,8 @@ def FourierSeries_Reconstruction(A0, An, Bn, img_size):
     # Compute components for x, y, and xy
     img_x = (An["An_x"][:, :, None, :] * cos_i[None, None, :, :] + Bn["Bn_x"][:, :, None, :] * sin_i[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
     img_y = (An["An_y"][:, :, None, :] * cos_j[None, None, :, :] + Bn["Bn_y"][:, :, None, :] * sin_j[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
-    img_xy = (An["An_xy"][:, :, None, None, :] * cos_i[None, None, :, None, :] * cos_j[None, None, None, :, :] + 
-              Bn["Bn_xy"][:, :, None, None, :] * sin_i[None, None, :, None, :] * sin_j[None, None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size, img_size)
+    img_xy = (An["An_xy"][:, :, None, None, :] * cos_i[None, None, :, None, :] * sin_i[None, None, None, :, :] + 
+              Bn["Bn_xy"][:, :, None, None, :] * sin_i[None, None, :, None, :] * cos_j[None, None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size, img_size)
     
     # Combine all components
     img = img_x[:, :, :, None] + img_y[:, :, None, :] + img_xy
