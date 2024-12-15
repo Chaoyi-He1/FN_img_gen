@@ -20,6 +20,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 import torch.multiprocessing
 from PIL import Image
 from torchvision import transforms
+from tqdm import tqdm
 
 import utils.misc as utils
 from model.encoder import Enc_models
@@ -27,9 +28,10 @@ from train.train_enc import *
 from diffusers.models import AutoencoderKL
 from diffusers import AutoencoderKLCogVideoX
 from torchvision.datasets import ImageFolder
+from torchvision.utils import save_image
 
 # the first flag below was False when we tested this script but True makes A100 training a lot faster:
-torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = True
 
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -70,8 +72,9 @@ def parse_args():
     parser.add_argument('opts', help='Modify config options using the command-line', default=None,
                         nargs=argparse.REMAINDER)
     
+    
     # output directory
-    parser.add_argument('--resume', default='trained_models/model_', type=str, metavar='PATH',
+    parser.add_argument('--resume', default='/mnt/shared-scratch/Katehi_L/chaoyi_he/FN_img_gen/trained_models/model_3_0100000.pth', type=str, metavar='PATH',
                         help='path to latest checkpoint (default none)')
     parser.add_argument('--save_dir', default='trained_models/', type=str,
                         help='directory to save checkpoints')
@@ -119,17 +122,10 @@ def parse_args():
     assert args.config is not None
     return args
 
-
 def main(args):
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
-    
-    utils.init_distributed_mode(args)
-    if args.rank in [-1, 0]:
-        print(args)
-    
-    assert args.batch_size % args.world_size == 0, "--batch-size must be divisible by number of GPUs"
     
     if args.device == 'cuda':
         torch.backends.cudnn.benchmark = True
@@ -141,20 +137,11 @@ def main(args):
     # print the gpu model name to check if it is A100
     print(torch.cuda.get_device_name())
     
-    # load hyper parameters
+    # load hyper parameters 
     with open(args.config) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
-        
-    # Setup experiment
-    if args.rank in [-1, 0] and args.save_dir:
-        Path(args.save_dir).mkdir(parents=True, exist_ok=True)
     
-    # create tensorboard writer
-    writer = None
-    if args.rank in [-1, 0]:
-        writer = SummaryWriter()
-    
-    # create model
+    # create model and load pretrained weights
     if config['use_vae']:
         vae = AutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}").to(device)
         vae.requires_grad_(False)
@@ -195,29 +182,7 @@ def main(args):
     
     encoder = encoder.to(device)
     
-    # move to distributed mode
-    encoder = torch.nn.parallel.DistributedDataParallel(encoder, device_ids=[args.gpu])
-    encoder_without_ddp = encoder.module
-    
-    # create optimizer and scheduler and model info
-    p_to_optimize, n_p, n_p_o, layers = [], 0, 0, 0
-    for p in encoder.module.parameters():
-        n_p += p.numel()
-        if p.requires_grad:
-            n_p_o += p.numel()
-            p_to_optimize.append(p)
-            layers += 1
-    print(f"Total number of parameters: {n_p}, number of parameters to optimize: {n_p_o}, number of layers: {layers}")
-    
-    args.lr *= max(1., args.world_size * args.batch_size / 64)
-    optimizer = torch.optim.AdamW(p_to_optimize, lr=args.lr)
-    lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
-    scheduler.last_epoch = start_epoch - 1 if args.resume.endswith('.pth') else start_epoch
-    if args.resume.endswith('.pth'):
-        scheduler.step()
-    
-    # Setup data:
+    # randomly pick 3 images from the dataset for testing
     transform = transforms.Compose([
         transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, config['image_size'])),
         transforms.RandomHorizontalFlip(),
@@ -226,40 +191,28 @@ def main(args):
     ])
     
     dataset = ImageFolder(args.data_path, transform=transform)
-    sampler = torch.utils.data.distributed.DistributedSampler(
-        dataset,
-        num_replicas=dist.get_world_size(),
-        rank=args.rank,
-        shuffle=True,
-        seed=args.seed
-    )
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=int(args.batch_size // dist.get_world_size()),
-        shuffle=False,
-        sampler=sampler,
-        pin_memory=True,
-        drop_last=True
-    )
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
     
-    # start training
-    start_time = time.time()
-    total_time = start_time
-    for epoch in range(start_epoch, args.epochs):
-        train_dict = train_one_epoch(
-            encoder, dataloader, optimizer, device, epoch, vae, args.clip_max_norm, scaler,
-            args.print_freq, args.batch_size, args.save_freq, args.rank, encoder_without_ddp, scheduler,
-            args.save_dir, writer
-        )
-        scheduler.step()
-    total_time = time.time() - total_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    
-    if args.rank in [-1, 0]:
-        writer.close()
-        print('Training time {}'.format(total_time_str))
+    sampled_images = []
+    for i, (img, label) in enumerate(dataloader):
+        sampled_images.append([img, label])
+        if i == 2:
+            break
+    i = 0
+    for img, label in tqdm(sampled_images):
+        img = img.to(device)
+        label = label.to(device)
         
-    cleanup()
+        with torch.no_grad():
+            recovered_img = encoder(img, label)
+            
+        # save the original and recovered images
+        img_name = f"original_{i}.png"
+        recovered_img_name = f"recovered_{i}.png"
+        i += 1
+        
+        save_image(img, img_name, nrow=3, normalize=True, value_range=(-1, 1))
+        save_image(recovered_img, recovered_img_name, nrow=3, normalize=True, value_range=(-1, 1))
 
 if __name__ == '__main__':
     args = parse_args()

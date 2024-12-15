@@ -5,7 +5,7 @@ from utils.misc import *
 from typing import Iterable
 from diffusers.models import AutoencoderKL, AutoencoderKLCogVideoX
 import torch.amp
-from encoder.encoder import Encoder
+from model.encoder import Encoder
 import utils
 import torch.distributed as dist
 from tensorboardX import SummaryWriter

@@ -9,44 +9,6 @@ from timm.models.vision_transformer import PatchEmbed, Attention
 import numpy as np
 
 
-def FourierSeries_Reconstruction(A0, An, Bn, img_size):
-    '''
-    Reconstruct the image from the Fourier series coefficients.
-    An contains {An_x, An_y, An_xy}, Bn contains {Bn_x, Bn_y, Bn_xy}
-    An is a dict {"An_x": An_x, "An_y": An_y, "An_xy": An_xy}, Bn is a dict {"Bn_x": Bn_x, "Bn_y": Bn_y, "Bn_xy": Bn_xy}
-    where An_x, An_y, An_xy, Bn_x, Bn_y, Bn_xy are tensors of shape (Batch, C, N), N is the number of Fourier series terms, C is the number of channels in the image
-    A0 is a tensor of shape (Batch, C), representing the DC component of the Fourier series
-    
-    img(i, j) = A0 + sum(An_x * cos(2*pi*n*i/img_size)) + sum(Bn_x * sin(2*pi*n*i/img_size))
-                   + sum(An_y * cos(2*pi*n*j/img_size)) + sum(Bn_y * sin(2*pi*n*j/img_size))
-                   + sum(An_xy * cos(2*pi*n*i/img_size) * cos(2*pi*n*j/img_size)) + sum(Bn_xy * sin(2*pi*n*i/img_size) * sin(2*pi*n*j/img_size))
-    '''
-    device = A0.device
-    pi = torch.tensor(3.1415927, device=device)
-    batch_size, C, N = An["An_x"].shape
-    
-    # Precompute cosine and sine terms
-    i_indices = torch.arange(img_size, device=device).float()   # (img_size,)
-    j_indices = torch.arange(img_size, device=device).float()   # (img_size,)
-    
-    cos_i = torch.cos(2 * pi * i_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    sin_i = torch.sin(2 * pi * i_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    cos_j = torch.cos(2 * pi * j_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    sin_j = torch.sin(2 * pi * j_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    
-    # Compute components for x, y, and xy
-    img_x = (An["An_x"][:, :, None, :] * cos_i[None, None, :, :] + Bn["Bn_x"][:, :, None, :] * sin_i[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
-    img_y = (An["An_y"][:, :, None, :] * cos_j[None, None, :, :] + Bn["Bn_y"][:, :, None, :] * sin_j[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
-    img_xy = (An["An_xy"][:, :, None, None, :] * cos_i[None, None, :, None, :] * sin_j[None, None, None, :, :] + 
-              Bn["Bn_xy"][:, :, None, None, :] * sin_i[None, None, :, None, :] * cos_j[None, None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size, img_size)
-    
-    # Combine all components
-    img = img_x[:, :, :, None] + img_y[:, :, None, :] + img_xy
-    img += A0[:, :, None, None]  # Add the DC component
-    
-    return img
-
-
 def modulate(x, shift, scale):
     '''
     Modulate the input tensor x with the given shift and scale.
@@ -127,31 +89,34 @@ class FinalLayer(nn.Module):
     def __init__(self, hidden_size, channel, num_fourier_terms):
         super().__init__()
         self.A0 = ConcatSquashLinear(hidden_size, 1, hidden_size)
-        self.An_x = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        self.An_y = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
+
         self.An_xy = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        self.Bn_x = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        self.Bn_y = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
         self.Bn_xy = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
+        
+        self.An_yx = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
+        self.Bn_yx = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
+        
         self.channel = channel
     
     def forward(self, x, c):
         x = x[:, :self.channel, :]
         c = c.unsqueeze(1)
         A0 = self.A0(c, x).squeeze(-1)
-        An_x = self.An_x(c, x)
-        An_y = self.An_y(c, x)
+
         An_xy = self.An_xy(c, x)
-        Bn_x = self.Bn_x(c, x)
-        Bn_y = self.Bn_y(c, x)
         Bn_xy = self.Bn_xy(c, x)
-        return A0, {"An_x": An_x, "An_y": An_y, "An_xy": An_xy}, {"Bn_x": Bn_x, "Bn_y": Bn_y, "Bn_xy": Bn_xy}
+        
+        An_yx = self.An_yx(c, x)
+        Bn_yx = self.Bn_yx(c, x)
+        
+        return A0, {"An_xy": An_xy, "An_yx": An_yx}, {"Bn_xy": Bn_xy, "Bn_yx": Bn_yx}
 
 
 class Encoder(nn.Module):
     '''
-    Encoder module for encoding the image into a feature vector conditioned on the label latent vector.
+    Encoder module for encoding the image into tokens conditioned on the label latent vector.
     Use ViT as the encoder.
+    The encoded tokens should be reconstructed by the Fourier series.
     '''
     def __init__(self, input_size=32, in_channels=4, 
                  num_classes=1000, num_fourier_terms=512,
@@ -180,8 +145,6 @@ class Encoder(nn.Module):
         self.blocks = nn.ModuleList([
             ViT_block(hidden_size, num_heads, mlp_ratio) for _ in range(depth)
         ])
-        
-        self.final_layer = FinalLayer(hidden_size, in_channels, num_fourier_terms)
 
         self.initilize_parameters()
     
@@ -217,8 +180,8 @@ class Encoder(nn.Module):
         c = self.label_embedder(labels) # (B, hidden_size)
         for block in self.blocks:
             x = block(x, c)
-        fourier_coeffs = self.final_layer(x, c)
-        return fourier_coeffs if self.return_coefficients else FourierSeries_Reconstruction(*fourier_coeffs, H)
+        
+        return x
     
 
 #################################################################################
