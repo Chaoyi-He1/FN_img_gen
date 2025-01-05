@@ -23,6 +23,9 @@ from torchvision import transforms
 
 import utils.misc as utils
 from model.encoder import Enc_models
+from model.decoder import Dec_models
+from model.FN_block import FN_coefficient
+from model.loss import total_loss
 from train.train_enc import *
 from diffusers.models import AutoencoderKL
 from diffusers import AutoencoderKLCogVideoX
@@ -168,6 +171,19 @@ def main(args):
         num_classes=config['num_classes'],
         num_fourier_terms=config['num_fourier_terms'],
     )
+    decoder = Dec_models[config['dec_model']](
+        output_size=config['image_size'] // 8 if config['use_vae'] else config['image_size'],
+        out_channels=4 if config['use_vae'] else 3,
+        num_patches=encoder.x_embedder.num_patches,
+    )
+    fn_model = FN_coefficient(
+        input_size=config['image_size'] // 8 if config['use_vae'] else config['image_size'],
+        in_channels=4 if config['use_vae'] else 3,
+        num_fourier_terms=config['num_fourier_terms'],
+        num_classes=config['num_classes'],
+    )
+    loss_fn = total_loss()
+        
     
     start_epoch = args.start_epoch
     scaler = torch.amp.GradScaler('cuda', enabled=args.amp) if args.amp else None
@@ -179,6 +195,8 @@ def main(args):
         
         try:
             encoder.load_state_dict(checkpoint['encoder'], strict=False)
+            decoder.load_state_dict(checkpoint['decoder'], strict=False)
+            fn_model.load_state_dict(checkpoint['fn_model'], strict=False)
         except KeyError as e:
             s = "%s is not compatible with %s. Specify --resume=.../model.pth" % (args.resume, args.config)
             raise KeyError(s) from e
@@ -186,22 +204,47 @@ def main(args):
         for layer_name, p_model in encoder.named_parameters():
             if not torch.equal(p_model, checkpoint['encoder'][layer_name]):
                 print(f"Model and checkpoint parameters are not equal: model: {layer_name}")
-                
-        print("Encoder model loaded correctly")
+        for layer_name, p_model in decoder.named_parameters():
+            if not torch.equal(p_model, checkpoint['decoder'][layer_name]):
+                print(f"Model and checkpoint parameters are not equal: model: {layer_name}")
+        for layer_name, p_model in fn_model.named_parameters():
+            if not torch.equal(p_model, checkpoint['fn_model'][layer_name]):
+                print(f"Model and checkpoint parameters are not equal: model: {layer_name}")        
+        print("Model loaded correctly")
+        
         start_epoch = checkpoint['epoch'] + 1
         scaler.load_state_dict(checkpoint['scaler'])
         del checkpoint
         print(f"Loaded checkpoint: {args.resume}")
     
     encoder = encoder.to(device)
+    decoder = decoder.to(device)
+    fn_model = fn_model.to(device)
+    loss_fn = loss_fn.to(device)
     
     # move to distributed mode
     encoder = torch.nn.parallel.DistributedDataParallel(encoder, device_ids=[args.gpu])
     encoder_without_ddp = encoder.module
+    decoder = torch.nn.parallel.DistributedDataParallel(decoder, device_ids=[args.gpu])
+    decoder_without_ddp = decoder.module
+    fn_model = torch.nn.parallel.DistributedDataParallel(fn_model, device_ids=[args.gpu])
+    fn_model_without_ddp = fn_model.module
     
     # create optimizer and scheduler and model info
     p_to_optimize, n_p, n_p_o, layers = [], 0, 0, 0
     for p in encoder.module.parameters():
+        n_p += p.numel()
+        if p.requires_grad:
+            n_p_o += p.numel()
+            p_to_optimize.append(p)
+            layers += 1
+    for p in decoder.module.parameters():
+        n_p += p.numel()
+        if p.requires_grad:
+            n_p_o += p.numel()
+            p_to_optimize.append(p)
+            layers += 1
+    for p in fn_model.module.parameters():
         n_p += p.numel()
         if p.requires_grad:
             n_p_o += p.numel()
@@ -247,7 +290,8 @@ def main(args):
     total_time = start_time
     for epoch in range(start_epoch, args.epochs):
         train_dict = train_one_epoch(
-            encoder, dataloader, optimizer, device, epoch, vae, args.clip_max_norm, scaler,
+            encoder, decoder, fn_model, loss_fn, 
+            dataloader, optimizer, device, epoch, vae, args.clip_max_norm, scaler,
             args.print_freq, args.batch_size, args.save_freq, args.rank, encoder_without_ddp, scheduler,
             args.save_dir, writer
         )

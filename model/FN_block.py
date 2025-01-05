@@ -91,7 +91,7 @@ class FN_coefficient(nn.Module):
         x3 = self.fc_bias(x)
         Axy, Bxy = x1.chunk(2, dim=1)
         Ayx, Byx = x2.chunk(2, dim=1)
-        return {'Axy': Axy, 'Bxy': Bxy, 'Ayx': Ayx, 'Byx': Byx, 'A0': x3}
+        return {"A0": x3, "Axy": Axy, "Ayx": Ayx, "Bxy": Bxy, "Byx": Byx}
 
 
 class FN_coefficients_loss(nn.Module):

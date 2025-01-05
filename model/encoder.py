@@ -180,7 +180,6 @@ class Encoder(nn.Module):
         c = self.label_embedder(labels) # (B, hidden_size)
         for block in self.blocks:
             x = block(x, c)
-        
         return x
     
 

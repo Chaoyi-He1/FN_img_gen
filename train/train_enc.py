@@ -6,12 +6,16 @@ from typing import Iterable
 from diffusers.models import AutoencoderKL, AutoencoderKLCogVideoX
 import torch.amp
 from model.encoder import Encoder
+from model.decoder import Decoder
+from model.FN_block import FN_coefficient, FourierSeries_Reconstruction
+from model.loss import total_loss
 import utils
 import torch.distributed as dist
 from tensorboardX import SummaryWriter
 
 def train_one_epoch(
-    encoder: Encoder, data_loader: Iterable, optimizer: torch.optim.Optimizer, device: torch.device, 
+    encoder: Encoder, decoder: Decoder, fn_block: FN_coefficient, loss_fn: total_loss,
+    data_loader: Iterable, optimizer: torch.optim.Optimizer, device: torch.device, 
     epoch: int, vae: AutoencoderKL, max_norm: float = 0.0, scaler: torch.amp.GradScaler = None,
     print_freq: int = 100, batch_size: int = 64, save_freq: int = 1000, rank: int = -1,
     encoder_without_ddp: torch.nn.Module = None, scheduler: torch.optim.lr_scheduler = None,
@@ -35,15 +39,19 @@ def train_one_epoch(
                     img = vae.encode(img).latent_dist.sample().mul_(0.18215)
         
         with torch.amp.autocast('cuda', enabled=scaler is not None):
-            y = encoder(img, lable)
+            encoded = encoder(img, lable)
+            fourier_coefficients = fn_block(encoded, lable)
+            A0, An, Bn = fourier_coefficients['A0'], {'Axy': fourier_coefficients['Axy'], 'Ayx': fourier_coefficients['Ayx']}, {'Bxy': fourier_coefficients['Bxy'], 'Byx': fourier_coefficients['Byx']}
+            fourier_reconstructed_encoded = FourierSeries_Reconstruction(A0, An, Bn, 32)
+            decoded = decoder(fourier_reconstructed_encoded)
             
-            loss = F.mse_loss(y, img)
+            total_loss, enc_loss, fourier_loss, dec_loss = loss_fn(encoded, fourier_coefficients, lable, decoded, img)
         
         optimizer.zero_grad()
         if scaler is not None:
-            scaler.scale(loss).backward()
+            scaler.scale(total_loss).backward()
         else:
-            loss.backward()
+            total_loss.backward()
         
         if max_norm > 0:
             if scaler is not None:
@@ -56,7 +64,10 @@ def train_one_epoch(
         else:
             optimizer.step()
         
-        metric_logger.update(loss=loss.item())
+        metric_logger.update(total_loss=total_loss.item())
+        metric_logger.update(enc_loss=enc_loss.item())
+        metric_logger.update(fourier_loss=fourier_loss.item())
+        metric_logger.update(dec_loss=dec_loss.item())
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         
         if train_steps % save_freq == 0:
