@@ -40,9 +40,9 @@ def train_one_epoch(
         
         with torch.amp.autocast('cuda', enabled=scaler is not None):
             encoded = encoder(img, lable)
-            fourier_coefficients = fn_block(encoded, lable)
-            A0, An, Bn = fourier_coefficients['A0'], {'Axy': fourier_coefficients['Axy'], 'Ayx': fourier_coefficients['Ayx']}, {'Bxy': fourier_coefficients['Bxy'], 'Byx': fourier_coefficients['Byx']}
-            fourier_reconstructed_encoded = FourierSeries_Reconstruction(A0, An, Bn, 32)
+            fourier_coefficients = fn_block(img, lable)
+            An, Bn = {'Axy': fourier_coefficients['Axy'], 'Ayx': fourier_coefficients['Ayx']}, {'Bxy': fourier_coefficients['Bxy'], 'Byx': fourier_coefficients['Byx']}
+            fourier_reconstructed_encoded = FourierSeries_Reconstruction(An, Bn, num_patch=encoder.module.x_embedder.num_patches, hidden_size=encoder.module.hidden_size)
             decoded = decoder(fourier_reconstructed_encoded)
             
             total_loss, enc_loss, fourier_loss, dec_loss = loss_fn(encoded, fourier_coefficients, lable, decoded, img)

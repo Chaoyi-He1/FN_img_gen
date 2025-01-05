@@ -17,8 +17,11 @@ class total_loss(nn.Module):
     
     def forward(self, encoded_image, fourier_coefficients, label, decoded_image, img):
         # Reconstruction loss, detach the fourier coefficients to avoid backpropagating through the Fourier coefficients model
-        fourier_coefficients_detach = {k: v.clone().detach() for k, v in fourier_coefficients.items()}
-        reconstruction_loss = F.mse_loss(self.reconstruction(fourier_coefficients_detach), encoded_image)
+        fourier_coefficients_detach_An = {'Axy': fourier_coefficients['Axy'].detach(), 'Ayx': fourier_coefficients['Ayx'].detach()}
+        fourier_coefficients_detach_Bn = {'Bxy': fourier_coefficients['Bxy'].detach(), 'Byx': fourier_coefficients['Byx'].detach()}
+        reconstruction_loss = F.mse_loss(self.reconstruction(fourier_coefficients_detach_An, fourier_coefficients_detach_Bn,
+                                                             encoded_image.shape[0], encoded_image.shape[1]),
+                                         encoded_image)
         
         # Fourier loss
         fourier_loss = self.fourier_loss(fourier_coefficients, label)

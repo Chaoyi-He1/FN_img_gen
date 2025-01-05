@@ -51,7 +51,7 @@ class Decoder(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.num_patches ** 0.5))
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
         
         # Zero-out adaLN modulation layers in DiT blocks:
@@ -96,13 +96,13 @@ def Dec_XL_8(**kwargs):
     return Decoder(depth=24, num_heads=16, hidden_size=1152, patch_size=8, **kwargs)
 
 def Dec_L_2(**kwargs):
-    return Decoder(depth=12, num_heads=8, hidden_size=768, patch_size=2, **kwargs)
+    return Decoder(depth=12, num_heads=8, hidden_size=1024, patch_size=2, **kwargs)
 
 def Dec_L_4(**kwargs):
-    return Decoder(depth=12, num_heads=8, hidden_size=768, patch_size=4, **kwargs)
+    return Decoder(depth=12, num_heads=8, hidden_size=1024, patch_size=4, **kwargs)
 
 def Dec_L_8(**kwargs):
-    return Decoder(depth=12, num_heads=8, hidden_size=768, patch_size=8, **kwargs)
+    return Decoder(depth=12, num_heads=8, hidden_size=1024, patch_size=8, **kwargs)
 
 def Dec_B_2(**kwargs):
     return Decoder(depth=12, num_heads=12, hidden_size=768, patch_size=2, **kwargs)

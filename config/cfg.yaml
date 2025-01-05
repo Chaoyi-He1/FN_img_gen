@@ -2,5 +2,8 @@
 enc_model: "Enc_L_8"
 image_size: 256
 num_classes: 1000
-num_fourier_terms: 1024
-use_vae: False
+num_fourier_terms: 256
+use_vae: True
+
+# Decoder configuration
+dec_model: "Dec_L_8"

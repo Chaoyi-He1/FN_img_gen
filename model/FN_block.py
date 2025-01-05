@@ -75,7 +75,6 @@ class FN_coefficient(nn.Module):
         # flatten the output and pass it through a linear layer to get the fourier coefficients
         self.fc_xy = nn.Linear(in_channels * input_size * input_size, num_fourier_terms * 2)
         self.fc_yx = nn.Linear(in_channels * input_size * input_size, num_fourier_terms * 2)
-        self.fc_bias = nn.Linear(in_channels * input_size * input_size, 1)
         self.flatten = nn.Flatten()
     
     def forward(self, x, label):
@@ -88,10 +87,9 @@ class FN_coefficient(nn.Module):
         x = self.flatten(x)
         x1 = self.fc_xy(x)
         x2 = self.fc_yx(x)
-        x3 = self.fc_bias(x)
         Axy, Bxy = x1.chunk(2, dim=1)
         Ayx, Byx = x2.chunk(2, dim=1)
-        return {"A0": x3, "Axy": Axy, "Ayx": Ayx, "Bxy": Bxy, "Byx": Byx}
+        return {"Axy": Axy, "Ayx": Ayx, "Bxy": Bxy, "Byx": Byx}
 
 
 class FN_coefficients_loss(nn.Module):
@@ -111,7 +109,7 @@ class FN_coefficients_loss(nn.Module):
             dict keys: Axy, Bxy, Ayx, Byx, A0
         labels: tensor of shape (batch_size)
         '''
-        Axy, Bxy, Ayx, Byx, _ = fn_coefficients['Axy'], fn_coefficients['Bxy'], fn_coefficients['Ayx'], fn_coefficients['Byx'], fn_coefficients['A0']
+        Axy, Bxy, Ayx, Byx = fn_coefficients['Axy'], fn_coefficients['Bxy'], fn_coefficients['Ayx'], fn_coefficients['Byx']
         loss = 0
         label_set = torch.unique(labels)
         for l in label_set:
@@ -129,41 +127,41 @@ class FN_coefficients_loss(nn.Module):
         return loss / len(label_set)
 
 
-def FourierSeries_Reconstruction(A0, An, Bn, img_size):
+def FourierSeries_Reconstruction(An, Bn, num_patch, hidden_size=1024):
     '''
     Reconstruct the image from the Fourier series coefficients.
     An contains {An_x, An_y, An_xy}, Bn contains {Bn_x, Bn_y, Bn_xy}
-    An is a dict {"An_x": An_x, "An_y": An_y, "An_xy": An_xy}, Bn is a dict {"Bn_x": Bn_x, "Bn_y": Bn_y, "Bn_xy": Bn_xy}
-    where An_x, An_y, An_xy, Bn_x, Bn_y, Bn_xy are tensors of shape (Batch, C, N), N is the number of Fourier series terms, C is the number of channels in the image
-    A0 is a tensor of shape (Batch, C), representing the DC component of the Fourier series
+    An is a dict {"An_xy": An_xy, "An_yx": An_yx}, Bn is a dict {"Bn_xy": Bn_xy, "Bn_yx": Bn_yx}
+    where An_xy, An_yx, Bn_xy, Bn_yx are tensors of shape (Batch, N), N is the number of Fourier series terms
     
-    img(i, j) = A0 + sum(An_yx * cos(2*pi*n*i/img_size) * sin(2*pi*n*j/img_size)) + sum(Bn_yx * sin(2*pi*n*i/img_size) * cos(2*pi*n*j/img_size))
-                   + sum(An_xy * cos(2*pi*n*i/img_size) * cos(2*pi*n*j/img_size)) + sum(Bn_xy * sin(2*pi*n*i/img_size) * sin(2*pi*n*j/img_size))
+    img(i, d) = sum(An_yx * cos(2*pi*n*i/num_patch) * sin(2*pi*n*d/hidden_size)) + 
+                sum(Bn_yx * sin(2*pi*n*i/num_patch) * cos(2*pi*n*d/hidden_size)) + 
+                sum(An_xy * cos(2*pi*n*i/num_patch) * cos(2*pi*n*d/hidden_size)) + 
+                sum(Bn_xy * sin(2*pi*n*i/num_patch) * sin(2*pi*n*d/hidden_size))
+                   
+    d is the channel dimension from 0 to hidden_size, i is the row index of the tokens from 0 to num_patch
     '''
-    device = A0.device
-    pi = torch.tensor(3.1415927, device=device)
-    batch_size, C, N = An["An_xy"].shape
+    device = An["An_xy"].device
+    pi = torch.tensor(3.1415927, device=device, requires_grad=False)
+    batch_size, N = An["An_xy"].shape
     
     # Precompute cosine and sine terms
-    i_indices = torch.arange(img_size, device=device).float()   # (img_size,)
-    j_indices = torch.arange(img_size, device=device).float()   # (img_size,)
+    i_indices = torch.arange(num_patch, device=device, requires_grad=False).float()   # (num_patch,)
+    d_indices = torch.arange(hidden_size, device=device, requires_grad=False).float()   # (hidden_size,)
     
-    cos_i = torch.cos(2 * pi * i_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    sin_i = torch.sin(2 * pi * i_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    cos_j = torch.cos(2 * pi * j_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
-    sin_j = torch.sin(2 * pi * j_indices[:, None] * torch.arange(N, device=device) / img_size)  # (img_size, N)
+    cos_i = torch.cos(2 * pi * i_indices[:, None] * torch.arange(N, device=device, requires_grad=False) / num_patch)  # (num_patch, N)
+    sin_i = torch.sin(2 * pi * i_indices[:, None] * torch.arange(N, device=device, requires_grad=False) / num_patch)  # (num_patch, N)
+    cos_d = torch.cos(2 * pi * d_indices[:, None] * torch.arange(N, device=device, requires_grad=False) / hidden_size)  # (hidden_size, N)
+    sin_d = torch.sin(2 * pi * d_indices[:, None] * torch.arange(N, device=device, requires_grad=False) / hidden_size)  # (hidden_size, N)
     
     # Compute components for x, y, and xy
-    # img_x = (An["An_x"][:, :, None, :] * cos_i[None, None, :, :] + Bn["Bn_x"][:, :, None, :] * sin_i[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
-    # img_y = (An["An_y"][:, :, None, :] * cos_j[None, None, :, :] + Bn["Bn_y"][:, :, None, :] * sin_j[None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size)
-    img_xy = (An["An_xy"][:, :, None, None, :] * cos_i[None, None, :, None, :] * cos_j[None, None, None, :, :] + 
-              Bn["Bn_xy"][:, :, None, None, :] * sin_i[None, None, :, None, :] * sin_j[None, None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size, img_size)
+    token_xy = (An["An_xy"][:, None, None, :] * cos_i[None, :, None, :] * cos_d[None, None, :, :] +
+                Bn["Bn_xy"][:, None, None, :] * sin_i[None, :, None, :] * sin_d[None, None, :, :]).sum(dim=-1)  # (Batch, num_patch, hidden_size)
     
-    img_yx = (An["An_yx"][:, :, None, None, :] * cos_i[None, None, :, None, :] * sin_j[None, None, None, :, :] + 
-              Bn["Bn_yx"][:, :, None, None, :] * sin_i[None, None, :, None, :] * cos_j[None, None, None, :, :]).sum(dim=-1)  # (Batch, C, img_size, img_size)
+    token_yx = (An["An_yx"][:, None, None, :] * cos_i[None, :, None, :] * sin_d[None, None, :, :] +
+                Bn["Bn_yx"][:, None, None, :] * sin_i[None, :, None, :] * cos_d[None, None, :, :]).sum(dim=-1)  # (Batch, num_patch, hidden_size)
     
     # Combine all components
-    img = img_xy + img_yx
-    img += A0[:, :, None, None]  # Add the DC component
+    img = token_xy + token_yx
     
     return img
