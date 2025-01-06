@@ -33,6 +33,7 @@ class Decoder(nn.Module):
         self.patch_size = patch_size
         
         # Embed 
+        self.label_embedder = LabelEmbedder(num_classes, hidden_size)
         self.num_patches = num_patches if num_patches == (output_size // patch_size) ** 2 else (output_size // patch_size) ** 2
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
         
@@ -54,6 +55,9 @@ class Decoder(nn.Module):
         pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.num_patches ** 0.5))
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
         
+        # Initialize label embedding table:
+        nn.init.normal_(self.label_embedder.embedding_table.weight, std=0.02)
+        
         # Zero-out adaLN modulation layers in DiT blocks:
         for block in self.blocks:
             nn.init.constant_(block.module[-1].weight, 0)
@@ -74,11 +78,12 @@ class Decoder(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x):
+    def forward(self, x, labels):
         # x: (N, T, hidden_size) -> (N, T, patch_size**2 * out_channels) -> (N, out_channels, H, W)
         x = x + self.pos_embed
+        c = self.label_embedder(labels) # (B, hidden_size)
         for block in self.blocks:
-            x = block(x)
+            x = block(x, c)
         x = self.unpatchify(x)
         return x
 

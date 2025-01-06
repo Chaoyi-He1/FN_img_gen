@@ -11,10 +11,11 @@ import numpy as np
 class res_block_with_label_condition(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, stride: int = 1, label_dim: int = 256, downsample = None):
         super(res_block_with_label_condition, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False) 
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False) if downsample is None else \
+                    nn.Conv2d(out_channels, out_channels, kernel_size=2, stride=2, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.downsample = downsample
         self.stride = stride
@@ -36,7 +37,7 @@ class res_block_with_label_condition(nn.Module):
         out = self.relu(out)
         
         label = self.label_emb(label)
-        out = out * (1 + F.sigmoid(label / label.max()))
+        out = out * (1 + F.sigmoid(label / label.max()).unsqueeze(-1).unsqueeze(-1))
         
         return out
     
@@ -78,10 +79,10 @@ class FN_coefficient(nn.Module):
         self.flatten = nn.Flatten()
     
     def forward(self, x, label):
-        label = self.label_emb(label)
+        label_emb = self.label_emb(label)
         for layer in self.res_block:
             if isinstance(layer, res_block_with_label_condition):
-                x = layer(x, label)
+                x = layer(x, label_emb)
             else:
                 x = layer(x)
         x = self.flatten(x)
@@ -141,9 +142,9 @@ def FourierSeries_Reconstruction(An, Bn, num_patch, hidden_size=1024):
                    
     d is the channel dimension from 0 to hidden_size, i is the row index of the tokens from 0 to num_patch
     '''
-    device = An["An_xy"].device
+    device = An["Axy"].device
     pi = torch.tensor(3.1415927, device=device, requires_grad=False)
-    batch_size, N = An["An_xy"].shape
+    batch_size, N = An["Axy"].shape
     
     # Precompute cosine and sine terms
     i_indices = torch.arange(num_patch, device=device, requires_grad=False).float()   # (num_patch,)
@@ -155,11 +156,11 @@ def FourierSeries_Reconstruction(An, Bn, num_patch, hidden_size=1024):
     sin_d = torch.sin(2 * pi * d_indices[:, None] * torch.arange(N, device=device, requires_grad=False) / hidden_size)  # (hidden_size, N)
     
     # Compute components for x, y, and xy
-    token_xy = (An["An_xy"][:, None, None, :] * cos_i[None, :, None, :] * cos_d[None, None, :, :] +
-                Bn["Bn_xy"][:, None, None, :] * sin_i[None, :, None, :] * sin_d[None, None, :, :]).sum(dim=-1)  # (Batch, num_patch, hidden_size)
+    token_xy = (An["Axy"][:, None, None, :] * cos_i[None, :, None, :] * cos_d[None, None, :, :] +
+                Bn["Bxy"][:, None, None, :] * sin_i[None, :, None, :] * sin_d[None, None, :, :]).sum(dim=-1)  # (Batch, num_patch, hidden_size)
     
-    token_yx = (An["An_yx"][:, None, None, :] * cos_i[None, :, None, :] * sin_d[None, None, :, :] +
-                Bn["Bn_yx"][:, None, None, :] * sin_i[None, :, None, :] * cos_d[None, None, :, :]).sum(dim=-1)  # (Batch, num_patch, hidden_size)
+    token_yx = (An["Ayx"][:, None, None, :] * cos_i[None, :, None, :] * sin_d[None, None, :, :] +
+                Bn["Byx"][:, None, None, :] * sin_i[None, :, None, :] * cos_d[None, None, :, :]).sum(dim=-1)  # (Batch, num_patch, hidden_size)
     
     # Combine all components
     img = token_xy + token_yx
