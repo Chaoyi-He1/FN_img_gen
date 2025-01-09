@@ -107,7 +107,7 @@ class FN_coefficients_loss(nn.Module):
     def forward(self, fn_coefficients, labels):
         '''
         fn_coefficients: a dict of tensors of shape (batch_size, num_fourier_terms)
-            dict keys: Axy, Bxy, Ayx, Byx, A0
+            dict keys: Axy, Bxy, Ayx, Byx, every tensor is of shape (batch_size, num_fourier_terms)
         labels: tensor of shape (batch_size)
         '''
         Axy, Bxy, Ayx, Byx = fn_coefficients['Axy'], fn_coefficients['Bxy'], fn_coefficients['Ayx'], fn_coefficients['Byx']
@@ -122,9 +122,11 @@ class FN_coefficients_loss(nn.Module):
                 # closer distance between the same label for each fourier coefficient
                 loss += 4 - self.cos(Axy_l.unsqueeze(1), Axy_l.unsqueeze(0)).mean() - self.cos(Bxy_l.unsqueeze(1), Bxy_l.unsqueeze(0)).mean() \
                         - self.cos(Ayx_l.unsqueeze(1), Ayx_l.unsqueeze(0)).mean() - self.cos(Byx_l.unsqueeze(1), Byx_l.unsqueeze(0)).mean()
-            # farther distance between different labels for each fourier coefficient
-            loss += self.cos(Axy_l.unsqueeze(1), Axy_not_l.unsqueeze(0)).mean() + self.cos(Bxy_l.unsqueeze(1), Bxy_not_l.unsqueeze(0)).mean() \
-                    + self.cos(Ayx_l.unsqueeze(1), Ayx_not_l.unsqueeze(0)).mean() + self.cos(Byx_l.unsqueeze(1), Byx_not_l.unsqueeze(0)).mean()
+            # farther distance between different labels for each fourier coefficient, try to stay orthogonal
+            loss += self.cos(Axy_l.unsqueeze(1), Axy_not_l.unsqueeze(0)).mean().abs() + self.cos(Bxy_l.unsqueeze(1), Bxy_not_l.unsqueeze(0)).mean().abs() \
+                    + self.cos(Ayx_l.unsqueeze(1), Ayx_not_l.unsqueeze(0)).mean().abs() + self.cos(Byx_l.unsqueeze(1), Byx_not_l.unsqueeze(0)).mean().abs()
+            # loss += self.cos(Axy_l.unsqueeze(1), Axy_not_l.unsqueeze(0)).mean() + self.cos(Bxy_l.unsqueeze(1), Bxy_not_l.unsqueeze(0)).mean() \
+            #         + self.cos(Ayx_l.unsqueeze(1), Ayx_not_l.unsqueeze(0)).mean() + self.cos(Byx_l.unsqueeze(1), Byx_not_l.unsqueeze(0)).mean()
         return loss / len(label_set)
 
 
