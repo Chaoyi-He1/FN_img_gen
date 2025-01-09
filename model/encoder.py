@@ -74,42 +74,23 @@ class ViT_block(nn.Module):
     
 
 class FinalLayer(nn.Module):
-    '''
-    Final layer of the encoder, which outputs the Fourier series coefficients.
-    Final layer is a module that takes the output of the encoder and the label latent vector as input.
-    
-    Input: x, c
-        x: (Batch, num_patches, hidden_size), the output of the encoder
-        c: (Batch, hidden_size), the label latent vector
-    Output: A0, An, Bn
-        A0: (Batch, C), the DC component of the Fourier series
-        An: {"An_x": An_x, "An_y": An_y, "An_xy": An_xy}, where An_x, An_y, An_xy are tensors of shape (Batch, C, N), N is the number of Fourier series terms
-        Bn: {"Bn_x": Bn_x, "Bn_y": Bn_y, "Bn_xy": Bn_xy}, where Bn_x, Bn_y, Bn_xy are tensors of shape (Batch, C, N), N is the number of Fourier series terms
-    '''
-    def __init__(self, hidden_size, channel, num_fourier_terms):
+    """
+    The final layer of DiT.
+    """
+    def __init__(self, hidden_size, patch_size, out_channels):
         super().__init__()
-        self.A0 = ConcatSquashLinear(hidden_size, 1, hidden_size)
+        self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(hidden_size, 2 * hidden_size, bias=True)
+        )
 
-        self.An_xy = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        self.Bn_xy = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        
-        self.An_yx = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        self.Bn_yx = ConcatSquashLinear(hidden_size, num_fourier_terms, hidden_size)
-        
-        self.channel = channel
-    
     def forward(self, x, c):
-        x = x[:, :self.channel, :]
-        c = c.unsqueeze(1)
-        A0 = self.A0(c, x).squeeze(-1)
-
-        An_xy = self.An_xy(c, x)
-        Bn_xy = self.Bn_xy(c, x)
-        
-        An_yx = self.An_yx(c, x)
-        Bn_yx = self.Bn_yx(c, x)
-        
-        return A0, {"An_xy": An_xy, "An_yx": An_yx}, {"Bn_xy": Bn_xy, "Bn_yx": Bn_yx}
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=-1)
+        x = modulate(self.norm_final(x), shift, scale)
+        x = self.linear(x)
+        return x
 
 
 class Encoder(nn.Module):

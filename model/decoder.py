@@ -40,6 +40,8 @@ class Decoder(nn.Module):
         self.blocks = nn.ModuleList([
             ViT_block(hidden_size, num_heads, mlp_ratio) for _ in range(depth)
         ])
+        
+        self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
         self.initilize_parameters()
     
     def initilize_parameters(self):
@@ -69,7 +71,7 @@ class Decoder(nn.Module):
         imgs: (N, H, W, C)
         """
         c = self.out_channels
-        p = self.num_patches
+        p = self.patch_size
         h = w = int(x.shape[1] ** 0.5)
         assert h * w == x.shape[1]
 
@@ -84,6 +86,7 @@ class Decoder(nn.Module):
         c = self.label_embedder(labels) # (B, hidden_size)
         for block in self.blocks:
             x = block(x, c)
+        x = self.final_layer(x, c)
         x = self.unpatchify(x)
         return x
 

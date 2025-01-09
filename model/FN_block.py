@@ -102,7 +102,7 @@ class FN_coefficients_loss(nn.Module):
     def __init__(self, num_classes: int = 1000):
         super(FN_coefficients_loss, self).__init__()
         self.num_classes = num_classes
-        self.cos = nn.CosineSimilarity(dim=1)
+        self.cos = nn.CosineSimilarity(dim=-1)
         
     def forward(self, fn_coefficients, labels):
         '''

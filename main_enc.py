@@ -97,7 +97,7 @@ def parse_args():
                         help='number of epochs to train')
     parser.add_argument('--start_epoch', default=0, type=int,
                         help='start epoch')
-    parser.add_argument('--print_freq', default=400, type=int,
+    parser.add_argument('--print_freq', default=4000, type=int,
                         help='print frequency')
     parser.add_argument('--save_freq', default=20000, type=int,
                         help='save frequency')
@@ -292,8 +292,9 @@ def main(args):
         train_dict = train_one_epoch(
             encoder, decoder, fn_model, loss_fn, 
             dataloader, optimizer, device, epoch, vae, args.clip_max_norm, scaler,
-            args.print_freq, args.batch_size, args.save_freq, args.rank, encoder_without_ddp, scheduler,
-            args.save_dir, writer
+            args.print_freq, args.batch_size, args.save_freq, args.rank, 
+            encoder_without_ddp, decoder_without_ddp, fn_model_without_ddp,
+            scheduler, args.save_dir, writer
         )
         scheduler.step()
     total_time = time.time() - total_time

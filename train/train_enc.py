@@ -18,8 +18,8 @@ def train_one_epoch(
     data_loader: Iterable, optimizer: torch.optim.Optimizer, device: torch.device, 
     epoch: int, vae: AutoencoderKL, max_norm: float = 0.0, scaler: torch.amp.GradScaler = None,
     print_freq: int = 100, batch_size: int = 64, save_freq: int = 1000, rank: int = -1,
-    encoder_without_ddp: torch.nn.Module = None, scheduler: torch.optim.lr_scheduler = None,
-    save_dir: str = "checkpoints", tb_writer: SummaryWriter = None
+    encoder_without_ddp: torch.nn.Module = None, decoder_without_ddp: torch.nn.Module = None, FN_coefficient_without_ddp: torch.nn.Module = None,
+    scheduler: torch.optim.lr_scheduler = None, save_dir: str = "checkpoints", tb_writer: SummaryWriter = None
 ):
     encoder.train()
     metric_logger = MetricLogger(delimiter="; ")
@@ -74,6 +74,8 @@ def train_one_epoch(
             if rank in [-1, 0]:
                 utils.save_on_master({
                     'encoder': encoder_without_ddp.state_dict(),
+                    'decoder': decoder_without_ddp.state_dict(),
+                    'fn_model': FN_coefficient_without_ddp.state_dict(),
                     'scaler': scaler.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scheduler': scheduler.state_dict(),
@@ -81,8 +83,11 @@ def train_one_epoch(
                 }, os.path.join(save_dir, f"model_{epoch}_{train_steps:07d}.pth"))
                 
             if tb_writer is not None:
-                tb_writer.add_scalar("train_steps/loss", metric_logger.meters['loss'].global_avg, train_steps)
-                tb_writer.add_scalar("train_steps/lr", metric_logger.meters['lr'].global_avg, train_steps)
+                tb_writer.add_scalar("train_loss/total_loss", metric_logger.meters['total_loss'].global_avg, train_steps)
+                tb_writer.add_scalar("train_loss/enc_loss", metric_logger.meters['enc_loss'].global_avg, train_steps)
+                tb_writer.add_scalar("train_loss/fourier_loss", metric_logger.meters['fourier_loss'].global_avg, train_steps)
+                tb_writer.add_scalar("train_loss/dec_loss", metric_logger.meters['dec_loss'].global_avg, train_steps)
+                tb_writer.add_scalar("lr", metric_logger.meters['lr'].global_avg, train_steps)
             
             dist.barrier()
     
