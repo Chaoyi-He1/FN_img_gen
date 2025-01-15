@@ -7,7 +7,7 @@ from .FN_block import FN_coefficients_loss, FourierSeries_Reconstruction
 
 
 class total_loss(nn.Module):
-    def __init__(self, lambda_reconstruction: float = .01, lambda_fourier: float = 1.0, lambda__decoder: float = 1.0):
+    def __init__(self, lambda_reconstruction: float = .0, lambda_fourier: float = 1.0, lambda__decoder: float = 1.0):
         super(total_loss, self).__init__()
         self.lambda_reconstruction = lambda_reconstruction
         self.lambda_fourier = lambda_fourier
